@@ -1,0 +1,142 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crypto Risk Calculator</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0b1220;color:#f1f5f9;font-family:Arial,sans-serif;padding:16px}
+h2{margin:10px 0 18px}
+.card{background:#172338;border:1px solid #334155;border-radius:16px;padding:16px;margin-bottom:14px}
+label{display:block;color:#aab8cc;font-size:14px;margin:12px 0 6px}
+input,select,button{width:100%;padding:13px;border-radius:10px;font-size:17px}
+input,select{background:#0c1729;color:white;border:1px solid #526179}
+button{background:#2879c5;color:white;border:0;font-weight:bold;margin-top:16px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.result{background:#0c1729;border-radius:12px;padding:12px;overflow-wrap:anywhere}
+.result small{color:#aab8cc}
+.result strong{display:block;margin-top:8px;font-size:19px}
+.green{color:#48d6a0}.red{color:#ff7788}
+svg{width:100%;height:auto;background:#0c1729;border-radius:12px}
+.note{color:#9daec5;font-size:12px;line-height:1.5}
+</style>
+</head>
+<body>
+<h2>📊 Crypto Risk</h2>
+<div class="card">
+<label>Направление</label>
+<select id="side">
+<option value="1">Лонг — покупка</option>
+<option value="-1">Шорт — продажа</option>
+</select>
+<label>Депозит (USDT)</label>
+<input id="capital" type="number" value="1000" step="any">
+<label>Цена входа (USDT)</label>
+<input id="entry" type="number" value="50000" step="any">
+<label>Стоп от входа (%)</label>
+<input id="stopPercent" type="number" value="1" step="0.1">
+<label>Риск от депозита (%)</label>
+<input id="riskPercent" type="number" value="1" step="0.1">
+<label>Прибыль / риск</label>
+<select id="rr">
+<option value="1">1:1</option>
+<option value="1.5">1:1.5</option>
+<option value="2" selected>1:2</option>
+<option value="3">1:3</option>
+</select>
+<label>Комиссия за одну сторону (%)</label>
+<input id="fee" type="number" value="0.1" step="0.01">
+<button onclick="calculate()">Применить и рассчитать</button>
+<p id="error" class="red"></p>
+</div>
+
+<div class="card">
+<div class="grid">
+<div class="result"><small>Стоп-лосс</small><strong class="red" id="stop">—</strong></div>
+<div class="result"><small>Тейк-профит</small><strong class="green" id="take">—</strong></div>
+<div class="result"><small>Убыток с комиссией</small><strong class="red" id="loss">—</strong></div>
+<div class="result"><small>Прибыль с комиссией</small><strong class="green" id="profit">—</strong></div>
+</div>
+<p id="position"></p>
+</div>
+
+<div class="card">
+<h3>График уровней</h3>
+<svg id="chart" viewBox="0 0 340 260" role="img" aria-label="Уровни стопа, входа и тейка"></svg>
+<p class="note">Зелёная зона — прибыль. Красная — убыток. Это схема уровней, а не реальные котировки.</p>
+</div>
+
+<p class="note">Расчёт без плеча. Комиссия учитывается при входе и выходе. Проскальзывание не учитывается. Стоп не гарантирует точный размер убытка.</p>
+
+<script>
+const el=id=>document.getElementById(id);
+const num=id=>Number(el(id).value);
+const fmt=n=>n.toLocaleString("ru-RU",{
+ minimumFractionDigits:2,
+ maximumFractionDigits:4
+});
+function calculate(){
+ const capital=num("capital");
+ const entry=num("entry");
+ const sp=num("stopPercent");
+ const rp=num("riskPercent");
+ const fee=num("fee")/100;
+ const rr=num("rr");
+ const side=num("side");
+ const error=el("error");
+ error.textContent="";
+ if(![capital,entry,sp,rp,fee,rr].every(Number.isFinite)
+ ||capital<=0||entry<=0||sp<=0||rp<=0
+ ||fee<0||rr<=0||sp>=100){
+  error.textContent="Проверь введённые значения.";
+  return;
+ }
+ const distance=entry*sp/100;
+ const stop=entry-side*distance;
+ const take=entry+side*distance*rr;
+ if(stop<=0||take<=0){
+  error.textContent="Некорректная цена стопа или тейка.";
+  return;
+ }
+ const riskMoney=capital*rp/100;
+ const unitLoss=distance+(entry+stop)*fee;
+ const qty=Math.min(riskMoney/unitLoss,capital/entry);
+ const loss=qty*unitLoss;
+ const profit=qty*(distance*rr-(entry+take)*fee);
+ el("stop").textContent=fmt(stop)+" $";
+ el("take").textContent=fmt(take)+" $";
+ el("loss").textContent="−"+fmt(loss)+" $";
+ el("profit").textContent=(profit>=0?"+":"")+fmt(profit)+" $";
+ el("position").textContent="Позиция: "+qty.toFixed(6)+
+ " монет · Объём: "+fmt(qty*entry)+" USDT";
+ draw(entry,stop,take,side);
+}
+function draw(entry,stop,take,side){
+ const svg=el("chart");
+ const lo=Math.min(entry,stop,take);
+ const hi=Math.max(entry,stop,take);
+ const pad=(hi-lo)*0.15;
+ const min=lo-pad,max=hi+pad;
+ const y=v=>220-(v-min)/(max-min)*175;
+ const ye=y(entry),ys=y(stop),yt=y(take);
+ const topG=Math.min(ye,yt);
+ const topR=Math.min(ye,ys);
+ const rect=(a,b,color)=>
+ `<rect x="12" y="${a}" width="316" height="${b-a}" fill="${color}" opacity=".18"/>`;
+ const line=(v,color,label,offset)=>
+ `<line x1="12" x2="328" y1="${y(v)}" y2="${y(v)}" stroke="${color}" stroke-width="2"/>
+ <text x="18" y="${y(v)+offset}" fill="${color}" font-size="12" font-weight="bold">${label} ${fmt(v)}</text>`;
+ svg.innerHTML=
+ rect(topG,Math.max(ye,yt),"#43d59b")+
+ rect(topR,Math.max(ye,ys),"#ff7788")+
+ line(take,"#43d59b","Тейк", -7)+
+ line(entry,"#ffffff","Вход", -7)+
+ line(stop,"#ff7788","Стоп",16)+
+ `<text x="15" y="249" fill="#9daec5" font-size="11">Цена, USDT · ${side===1?"Лонг":"Шорт"}</text>`;
+}
+calculate();
+</script>
+</body>
+</html>
